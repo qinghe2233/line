@@ -1,0 +1,71 @@
+server:
+  port: 8080
+  # 收到停止信号后先停止接收新请求，把执行中的请求处理完，避免重启丢请求
+  shutdown: graceful
+
+spring:
+  application:
+    name: booking-queue
+  profiles:
+    # 默认本地环境；打包进容器时用 --spring.profiles.active=docker 覆盖
+    active: local
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  jackson:
+    time-zone: Asia/Shanghai
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.example.booking.domain
+  configuration:
+    map-underscore-to-camel-case: true
+    # 用 Slf4jImpl 而不是 StdOutImpl：SQL 日志会带上 traceId，且能按包名控制级别
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+    db-config:
+      # 对应 BIGINT AUTO_INCREMENT
+      id-type: auto
+      # 全局逻辑删除字段，只有带 deleted 字段的表才生效
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+  packages-to-scan: com.example.booking.controller
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+    enable-footer: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      # 展开各组件（db/redis）状态，排查"服务起来了但依赖挂了"很有用
+      show-details: always
+      probes:
+        # 开启 /actuator/health/liveness 与 readiness，
+        # liveness 不依赖外部组件，适合判断进程是否存活
+        enabled: true
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: booking-queue
+    version: 1.0.0
+
+logging:
+  level:
+    root: info

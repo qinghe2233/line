@@ -1,0 +1,60 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # rewriteBatchedStatements=true：批量插入/更新时把多条 SQL 合并发送，明显减少网络往返
+    url: jdbc:mysql://127.0.0.1:3306/booking_queue?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: root
+    password: "123456"
+    hikari:
+      pool-name: booking-hikari
+      minimum-idle: 5
+      maximum-pool-size: 20
+      # 取连接超时调短，数据库挂掉时快速失败，而不是把 Tomcat 线程长时间挂住
+      connection-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      timeout: 3s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2s
+
+rocketmq:
+  name-server: 127.0.0.1:9876
+  producer:
+    group: booking-producer-group
+    send-message-timeout: 3000
+
+booking:
+  mq:
+    # 本地未启动 RocketMQ：关闭消费者注册，否则启动时连不上 NameServer 会直接启动失败。
+    # 消息发送失败只记日志，超时关单由 OrderTimeoutCompensateTask 定时扫表兜底。
+    # 用 Docker Compose 起的 docker profile 不设置该值，消费者默认开启。
+    consumer-enabled: false
+  jwt:
+    # HS256 要求密钥至少 32 字节，配短了启动直接失败；真实环境应放环境变量/配置中心
+    secret: booking-queue-jwt-secret-key-2026-dev
+    expire-minutes: 120
+    issuer: booking-queue
+
+pay:
+  callback:
+    # 模拟第三方渠道的签名密钥，真实环境应放配置中心/环境变量
+    secret: booking-pay-secret
+  points-per-payment: 10
+
+queue:
+  # 叫号后多少分钟未完成自动过号；延时消息与定时补偿任务共用该值
+  call-timeout-minutes: 3
+
+logging:
+  level:
+    # debug 时会打印 MyBatis-Plus 的 SQL 与参数，上线前务必改成 info
+    com.example.booking: debug

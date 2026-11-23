@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 主机名对应 docker-compose 里的 service 名，容器内通过 Docker DNS 解析
+    url: jdbc:mysql://mysql:3306/booking_queue?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: root
+    password: "123456"
+    hikari:
+      pool-name: booking-hikari
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  data:
+    redis:
+      host: redis
+      port: 6379
+      database: 0
+      timeout: 3s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2s
+
+rocketmq:
+  name-server: rocketmq-namesrv:9876
+  producer:
+    group: booking-producer-group
+    send-message-timeout: 3000
+
+booking:
+  jwt:
+    # 生产环境务必通过环境变量 BOOKING_JWT_SECRET 覆盖
+    secret: ${BOOKING_JWT_SECRET:booking-queue-jwt-secret-key-2026-docker}
+    expire-minutes: 120
+    issuer: booking-queue
+
+logging:
+  level:
+    root: info
+    com.example.booking: info
