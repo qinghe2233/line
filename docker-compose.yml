@@ -1,0 +1,123 @@
+# 一键编排：MySQL + Redis + RocketMQ + 后端 + 前端 Nginx
+# 用法：docker compose up -d
+
+services:
+  mysql:
+    image: mysql:8.0.39
+    container_name: booking-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: booking_queue
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 首次初始化时自动执行建表脚本（容器数据卷已存在则不会重复执行）
+      - ./src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      # 建表后灌入演示/压测种子数据，容器起来即可直接演示
+      - ./src/main/resources/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: booking-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: booking-rocketmq-namesrv
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
+    restart: unless-stopped
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: booking-rocketmq-broker
+    depends_on:
+      - rocketmq-namesrv
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/conf/broker.conf
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    environment:
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    volumes:
+      - ./docker/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+    restart: unless-stopped
+
+  # ============ 后端 ============
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: booking-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_started
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: docker
+      # 显式覆盖为 compose 内部 DNS，不依赖 application-docker.yml 的默认值
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/booking_queue?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+      SPRING_DATA_REDIS_HOST: redis
+      ROCKETMQ_NAMESRV: rocketmq-namesrv:9876
+      BOOKING_JWT_SECRET: booking-queue-jwt-secret-key-2026-docker-env-min
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # ============ 前端：Nginx 托管静态文件 + 反代后端 ============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: booking-frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mysql-data:
+  redis-data:
